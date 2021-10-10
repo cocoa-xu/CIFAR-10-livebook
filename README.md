@@ -1,5 +1,5 @@
 # CIFAR-10-livebook
-A simple example using Numerical Elixir (Nx) and Elixir livebook!
+A simple example using [Numerical Elixir (Nx)](https://github.com/elixir-nx) and [Elixir livebook](https://github.com/livebook-dev/livebook)!
 
 ## Code
 ```elixir
