@@ -1,0 +1,604 @@
+<!-- livebook:{"persist_outputs":true} -->
+
+# CIFAR-10
+
+## Section
+
+```elixir
+# optional
+# use Torch or XLA will be much faster
+Nx.default_backend(Torchx.Backend)
+```
+
+```output
+{Torchx.Backend, []}
+```
+
+```elixir
+# expected directory layout
+# .
+# ├── CIFAR-10.livemd
+# ├── data_batch_1.bin
+# ├── data_batch_2.bin
+# ├── data_batch_3.bin
+# ├── data_batch_4.bin
+# ├── data_batch_5.bin
+# └── test_batch.bin
+defmodule CIFAR10 do
+  defp get_batch_file("data", batch_num) do
+    # CIFAR-10 training dataset
+    __ENV__.file
+    |> Path.dirname()
+    |> Path.join(["data_batch_" <> to_string(batch_num) <> ".bin"])
+  end
+
+  defp get_batch_file("test", _) do
+    # CIFAR-10 test dataset
+    __ENV__.file
+    |> Path.dirname()
+    |> Path.join(["test_batch.bin"])
+  end
+
+  defp read_batch(type, batch_num) do
+    # get corresponding batch
+    filename = get_batch_file(type, batch_num)
+    # read batch file
+    File.read(filename)
+  end
+
+  def rgb_to_grey(chw) do
+    # http://support.ptc.com/help/mathcad/en/index.html#page/PTC_Mathcad_Help/example_grayscale_and_color_in_images.html
+    # using the NTSC formula: 0.299 ∙ Red + 0.587 ∙ Green + 0.114 ∙ Blue
+    chw
+    |> Nx.transpose(axes: [1, 2, 0])
+    |> Nx.dot(Nx.tensor([0.299, 0.587, 0.114]))
+  end
+
+  defp get_dataset() do
+    # read training dataset
+    {:ok, training_data} = get_dataset("data", Enum.to_list(1..5), <<>>)
+    # read test dataset
+    {:ok, test_data} = get_dataset("test", [nil], <<>>)
+    {:ok, training_data, test_data}
+  end
+
+  def get_dataset(colour_type) do
+    {:ok, training_data, test_data} = get_dataset()
+    # convert to Nx arrays
+    {:ok, x_training, y_training} = to_nx_array(training_data, colour_type)
+    {:ok, x_test, y_test} = to_nx_array(test_data, colour_type)
+    # return greyscale dataset
+    {Nx.as_type(x_training, {:f, 32}), Nx.as_type(y_training, {:f, 32}), x_test, y_test}
+  end
+
+  def get_dataset(type, [batch_num | rest], all_data) do
+    # read current batch file
+    {:ok, data} = read_batch(type, batch_num)
+    # read rest batch file
+    get_dataset(type, rest, all_data <> data)
+  end
+
+  def get_dataset(_type, [], all_data) do
+    # no more batch file to read
+    {:ok, all_data}
+  end
+
+  defp to_nx_array(raw_data, colour_type) do
+    # get number of bytes
+    num_bytes = byte_size(raw_data)
+    # according to https://www.cs.toronto.edu/~kriz/cifar.html
+    # the layout of each sample is <1 x label><3072 x pixel>
+    # therefore, rem(num_bytes, 3073) must be 0
+    0 = rem(num_bytes, 3073)
+    # get number of samples
+    num_samples = trunc(num_bytes / 3073 - 1)
+
+    # read samples
+    samples =
+      case colour_type do
+        :rgb ->
+          for(
+            i <- Enum.to_list(0..num_samples),
+            do:
+              :binary.part(raw_data, i * 3073, 3072)
+              |> Nx.from_binary({:u, 8})
+          )
+          |> Nx.concatenate()
+          |> Nx.reshape({num_samples + 1, 3, 32, 32}, names: [:n, :c, :h, :w])
+
+        :grey ->
+          for(
+            i <- Enum.to_list(0..num_samples),
+            do:
+              :binary.part(raw_data, i * 3073, 3072)
+              |> Nx.from_binary({:u, 8})
+              |> Nx.reshape({3, 32, 32}, names: [:c, :h, :w])
+              |> rgb_to_grey()
+          )
+          |> Nx.concatenate()
+          |> Nx.reshape({num_samples + 1, 32, 32}, names: [:n, :h, :w])
+      end
+
+    # get labels
+    labels = Nx.tensor(for i <- Enum.to_list(0..num_samples), do: :binary.at(raw_data, i * 3073))
+    # :ok
+    {:ok, samples, labels}
+  end
+end
+```
+
+```output
+{:module, CIFAR10, <<70, 79, 82, 49, 0, 0, 21, ...>>, {:to_nx_array, 2}}
+```
+
+```elixir
+{x_training, y_training, x_test, y_test} = CIFAR10.get_dataset(:grey)
+{n, _, _} = Nx.shape(x_training)
+n
+```
+
+```output
+50000
+```
+
+```elixir
+# training code
+# based on https://github.com/elixir-nx/nx/blob/e4454423f7be39d3adc9dea76526185fbfaf7a58/exla/examples/mnist.exs
+
+defmodule DenseNN do
+  import Nx.Defn
+
+  defn init_random_params do
+    # 3 layers
+    #  1. Dense(64) with sigmoid
+    #  2. Dense(32) with sigmoid
+    #  3. Dense(10) with softmax
+    w1 = Nx.random_normal({1024, 64}, 0.0, 0.1, names: [:input, :layer1])
+    b1 = Nx.random_normal({64}, 0.0, 0.1, names: [:layer1])
+    w2 = Nx.random_normal({64, 32}, 0.0, 0.1, names: [:layer1, :layer2])
+    b2 = Nx.random_normal({32}, 0.0, 0.1, names: [:layer2])
+    w3 = Nx.random_normal({32, 10}, 0.0, 0.1, names: [:layer2, :output])
+    b3 = Nx.random_normal({10}, 0.0, 0.1, names: [:output])
+    {w1, b1, w2, b2, w3, b3}
+  end
+
+  defn softmax(logits) do
+    Nx.exp(logits) /
+      Nx.sum(Nx.exp(logits), axes: [:output], keep_axes: true)
+  end
+
+  defn predict({w1, b1, w2, b2, w3, b3}, batch) do
+    batch
+    |> Nx.dot(w1)
+    |> Nx.add(b1)
+    |> Nx.logistic()
+    |> Nx.dot(w2)
+    |> Nx.add(b2)
+    |> Nx.logistic()
+    |> Nx.dot(w3)
+    |> Nx.add(b3)
+    |> softmax()
+  end
+
+  defn accuracy({w1, b1, w2, b2, w3, b3}, batch_images, batch_labels) do
+    Nx.mean(
+      Nx.equal(
+        Nx.argmax(batch_labels, axis: :output),
+        Nx.argmax(predict({w1, b1, w2, b2, w3, b3}, batch_images), axis: :output)
+      )
+      |> Nx.as_type({:s, 8})
+    )
+  end
+
+  defn loss({w1, b1, w2, b2, w3, b3}, batch_images, batch_labels) do
+    preds = predict({w1, b1, w2, b2, w3, b3}, batch_images)
+    -Nx.sum(Nx.mean(Nx.log(preds) * batch_labels, axes: [:output]))
+  end
+
+  defn update({w1, b1, w2, b2, w3, b3} = params, batch_images, batch_labels, step) do
+    {grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3} =
+      grad(params, &loss(&1, batch_images, batch_labels))
+
+    {
+      w1 - grad_w1 * step,
+      b1 - grad_b1 * step,
+      w2 - grad_w2 * step,
+      b2 - grad_b2 * step,
+      w3 - grad_w3 * step,
+      b3 - grad_b3 * step
+    }
+  end
+
+  defn update_with_averages(
+         {_, _, _, _, _, _} = cur_params,
+         imgs,
+         tar,
+         avg_loss,
+         avg_accuracy,
+         total
+       ) do
+    batch_loss = loss(cur_params, imgs, tar)
+    batch_accuracy = accuracy(cur_params, imgs, tar)
+    avg_loss = avg_loss + batch_loss / total
+    avg_accuracy = avg_accuracy + batch_accuracy / total
+    {update(cur_params, imgs, tar, 0.01), avg_loss, avg_accuracy}
+  end
+
+  def train_epoch(cur_params, x, labels) do
+    total_batches = Enum.count(x)
+
+    x
+    |> Enum.zip(labels)
+    |> Enum.reduce({cur_params, Nx.tensor(0.0), Nx.tensor(0.0)}, fn
+      {x, tar}, {cur_params, avg_loss, avg_accuracy} ->
+        update_with_averages(cur_params, x, tar, avg_loss, avg_accuracy, total_batches)
+    end)
+  end
+
+  def train(x, labels, params, opts \\ []) do
+    epochs = opts[:epochs] || 5
+
+    for epoch <- 1..epochs, reduce: params do
+      cur_params ->
+        {time, {new_params, epoch_avg_loss, epoch_avg_acc}} =
+          :timer.tc(__MODULE__, :train_epoch, [cur_params, x, labels])
+
+        epoch_avg_loss =
+          epoch_avg_loss
+          |> Nx.backend_transfer()
+          |> Nx.to_scalar()
+
+        epoch_avg_acc =
+          epoch_avg_acc
+          |> Nx.backend_transfer()
+          |> Nx.to_scalar()
+
+        IO.puts("Epoch #{epoch} Time: #{time / 1_000_000}s")
+        IO.puts("Epoch #{epoch} average loss: #{inspect(epoch_avg_loss)}")
+        IO.puts("Epoch #{epoch} average accuracy: #{inspect(epoch_avg_acc)}")
+        IO.puts("\n")
+        new_params
+    end
+  end
+end
+```
+
+```output
+{:module, DenseNN, <<70, 79, 82, 49, 0, 0, 57, ...>>, {:train, 4}}
+```
+
+```elixir
+defmodule Helper do
+  def to_onehot_single(0, oh, _pos) do
+    oh
+  end
+
+  def to_onehot_single(count, oh, pos) do
+    cur = count - 1
+
+    case cur == pos do
+      true -> to_onehot_single(count - 1, [1] ++ oh, pos)
+      _ -> to_onehot_single(count - 1, [0] ++ oh, pos)
+    end
+  end
+
+  def to_onehot_single(0, _pos) do
+    []
+  end
+
+  def to_onehot_single(count, pos) do
+    to_onehot_single(count, [], pos)
+  end
+
+  def to_onehot(labels, unique_classes) do
+    for(
+      l <- Nx.to_flat_list(labels),
+      do: Nx.tensor([to_onehot_single(unique_classes, l)])
+    )
+    |> Nx.concatenate()
+    |> Nx.reshape({:auto, unique_classes}, names: [:batch, :output])
+  end
+end
+```
+
+```output
+{:module, Helper, <<70, 79, 82, 49, 0, 0, 9, ...>>, {:to_onehot, 2}}
+```
+
+```elixir
+batch_size = 300
+unique_classes = 10
+
+x_training_batched =
+  x_training
+  # uint8 to float
+  |> Nx.divide(255)
+  # flatten
+  |> Nx.reshape({:auto, 1024})
+  |> Nx.as_type({:f, 32})
+  |> Nx.to_batched_list(batch_size)
+
+y_training_batched =
+  y_training
+  |> Helper.to_onehot(unique_classes)
+  |> Nx.as_type({:f, 32})
+  |> Nx.to_batched_list(batch_size)
+
+:ok
+```
+
+```output
+:ok
+```
+
+```elixir
+params = DenseNN.init_random_params()
+
+final_params =
+  DenseNN.train(
+    x_training_batched,
+    y_training_batched,
+    params,
+    epochs: 50
+  )
+
+:ok
+```
+
+```output
+Epoch 1 Time: 0.803077s
+Epoch 1 average loss: 68.7657699584961
+Epoch 1 average accuracy: 0.126087948679924
+
+
+Epoch 2 Time: 0.796369s
+Epoch 2 average loss: 66.5102310180664
+Epoch 2 average accuracy: 0.1714371144771576
+
+
+Epoch 3 Time: 0.79897s
+Epoch 3 average loss: 64.82881927490234
+Epoch 3 average accuracy: 0.19141711294651031
+
+
+Epoch 4 Time: 0.777565s
+Epoch 4 average loss: 63.569854736328125
+Epoch 4 average accuracy: 0.21922153234481812
+
+
+Epoch 5 Time: 0.780275s
+Epoch 5 average loss: 62.415199279785156
+Epoch 5 average accuracy: 0.23788419365882874
+
+
+Epoch 6 Time: 0.817757s
+Epoch 6 average loss: 61.80364227294922
+Epoch 6 average accuracy: 0.24995994567871094
+
+
+Epoch 7 Time: 0.812815s
+Epoch 7 average loss: 61.37662887573242
+Epoch 7 average accuracy: 0.25698593258857727
+
+
+Epoch 8 Time: 0.814344s
+Epoch 8 average loss: 60.96019744873047
+Epoch 8 average accuracy: 0.2646107077598572
+
+
+Epoch 9 Time: 0.816034s
+Epoch 9 average loss: 60.532901763916016
+Epoch 9 average accuracy: 0.27045902609825134
+
+
+Epoch 10 Time: 0.81054s
+Epoch 10 average loss: 60.113563537597656
+Epoch 10 average accuracy: 0.27670642733573914
+
+
+Epoch 11 Time: 0.827785s
+Epoch 11 average loss: 59.72106170654297
+Epoch 11 average accuracy: 0.28095799684524536
+
+
+Epoch 12 Time: 0.817091s
+Epoch 12 average loss: 59.35633087158203
+Epoch 12 average accuracy: 0.2855288088321686
+
+
+Epoch 13 Time: 0.80908s
+Epoch 13 average loss: 59.00703430175781
+Epoch 13 average accuracy: 0.2896604537963867
+
+
+Epoch 14 Time: 0.814167s
+Epoch 14 average loss: 58.66067123413086
+Epoch 14 average accuracy: 0.2937723696231842
+
+
+Epoch 15 Time: 0.785149s
+Epoch 15 average loss: 58.31298828125
+Epoch 15 average accuracy: 0.29896193742752075
+
+
+Epoch 16 Time: 0.799338s
+Epoch 16 average loss: 57.967445373535156
+Epoch 16 average accuracy: 0.30313360691070557
+
+
+Epoch 17 Time: 0.821787s
+Epoch 17 average loss: 57.63004684448242
+Epoch 17 average accuracy: 0.30670660734176636
+
+
+Epoch 18 Time: 0.810802s
+Epoch 18 average loss: 57.304771423339844
+Epoch 18 average accuracy: 0.3103392422199249
+
+
+Epoch 19 Time: 0.820836s
+Epoch 19 average loss: 56.99277877807617
+Epoch 19 average accuracy: 0.31510984897613525
+
+
+Epoch 20 Time: 0.854628s
+Epoch 20 average loss: 56.69321823120117
+Epoch 20 average accuracy: 0.3189621567726135
+
+
+Epoch 21 Time: 0.805037s
+Epoch 21 average loss: 56.40473175048828
+Epoch 21 average accuracy: 0.32257476449012756
+
+
+Epoch 22 Time: 0.803996s
+Epoch 22 average loss: 56.1258659362793
+Epoch 22 average accuracy: 0.3266865015029907
+
+
+Epoch 23 Time: 0.786438s
+Epoch 23 average loss: 55.855594635009766
+Epoch 23 average accuracy: 0.3308183550834656
+
+
+Epoch 24 Time: 0.789865s
+Epoch 24 average loss: 55.59310531616211
+Epoch 24 average accuracy: 0.33419156074523926
+
+
+Epoch 25 Time: 0.76699s
+Epoch 25 average loss: 55.337799072265625
+Epoch 25 average accuracy: 0.33862268924713135
+
+
+Epoch 26 Time: 0.783455s
+Epoch 26 average loss: 55.089290618896484
+Epoch 26 average accuracy: 0.3417165279388428
+
+
+Epoch 27 Time: 0.777347s
+Epoch 27 average loss: 54.847347259521484
+Epoch 27 average accuracy: 0.34435129165649414
+
+
+Epoch 28 Time: 0.789948s
+Epoch 28 average loss: 54.61201095581055
+Epoch 28 average accuracy: 0.3465668261051178
+
+
+Epoch 29 Time: 0.81269s
+Epoch 29 average loss: 54.38359069824219
+Epoch 29 average accuracy: 0.35043904185295105
+
+
+Epoch 30 Time: 0.812856s
+Epoch 30 average loss: 54.16234588623047
+Epoch 30 average accuracy: 0.3531336486339569
+
+
+Epoch 31 Time: 0.811606s
+Epoch 31 average loss: 53.94850158691406
+Epoch 31 average accuracy: 0.3555688261985779
+
+
+Epoch 32 Time: 0.823279s
+Epoch 32 average loss: 53.742191314697266
+Epoch 32 average accuracy: 0.35784420371055603
+
+
+Epoch 33 Time: 0.813971s
+Epoch 33 average loss: 53.543331146240234
+Epoch 33 average accuracy: 0.36087822914123535
+
+
+Epoch 34 Time: 0.786756s
+Epoch 34 average loss: 53.35163497924805
+Epoch 34 average accuracy: 0.3637923300266266
+
+
+Epoch 35 Time: 0.782334s
+Epoch 35 average loss: 53.16670227050781
+Epoch 35 average accuracy: 0.3668264150619507
+
+
+Epoch 36 Time: 0.77714s
+Epoch 36 average loss: 52.98808670043945
+Epoch 36 average accuracy: 0.36934131383895874
+
+
+Epoch 37 Time: 0.823598s
+Epoch 37 average loss: 52.81534957885742
+Epoch 37 average accuracy: 0.37155693769454956
+
+
+Epoch 38 Time: 0.815151s
+Epoch 38 average loss: 52.64800262451172
+Epoch 38 average accuracy: 0.3739321231842041
+
+
+Epoch 39 Time: 0.815011s
+Epoch 39 average loss: 52.48572540283203
+Epoch 39 average accuracy: 0.37628740072250366
+
+
+Epoch 40 Time: 0.815955s
+Epoch 40 average loss: 52.32804870605469
+Epoch 40 average accuracy: 0.37834328413009644
+
+
+Epoch 41 Time: 0.81416s
+Epoch 41 average loss: 52.174583435058594
+Epoch 41 average accuracy: 0.38047894835472107
+
+
+Epoch 42 Time: 0.827025s
+Epoch 42 average loss: 52.024993896484375
+Epoch 42 average accuracy: 0.38199594616889954
+
+
+Epoch 43 Time: 0.794406s
+Epoch 43 average loss: 51.8788948059082
+Epoch 43 average accuracy: 0.38427141308784485
+
+
+Epoch 44 Time: 0.763607s
+Epoch 44 average loss: 51.73603057861328
+Epoch 44 average accuracy: 0.3864072263240814
+
+
+Epoch 45 Time: 0.798662s
+Epoch 45 average loss: 51.59611892700195
+Epoch 45 average accuracy: 0.3880240321159363
+
+
+Epoch 46 Time: 0.817519s
+Epoch 46 average loss: 51.458927154541016
+Epoch 46 average accuracy: 0.3896208107471466
+
+
+Epoch 47 Time: 0.818667s
+Epoch 47 average loss: 51.32427215576172
+Epoch 47 average accuracy: 0.3914371430873871
+
+
+Epoch 48 Time: 0.820442s
+Epoch 48 average loss: 51.19187927246094
+Epoch 48 average accuracy: 0.3933132588863373
+
+
+Epoch 49 Time: 0.812657s
+Epoch 49 average loss: 51.061649322509766
+Epoch 49 average accuracy: 0.39453086256980896
+
+
+Epoch 50 Time: 0.783337s
+Epoch 50 average loss: 50.93345642089844
+Epoch 50 average accuracy: 0.39602795243263245
+
+
+```
+
+```output
+:ok
+```
+
