@@ -23,12 +23,16 @@ Nx.default_backend(Torchx.Backend)
 defmodule CIFAR10 do
   defp get_batch_file("data", batch_num) do
     # CIFAR-10 training dataset
-    "/home/cocoa/data/livebook/data_batch_" <> to_string(batch_num) <> ".bin"
+    __ENV__.file
+    |> Path.dirname()
+    |> Path.join(["data_batch_" <> to_string(batch_num) <> ".bin"])
   end
 
   defp get_batch_file("test", _) do
     # CIFAR-10 test dataset
-    "/home/cocoa/data/livebook/test_batch.bin"
+    __ENV__.file
+    |> Path.dirname()
+    |> Path.join(["test_batch.bin"])
   end
 
   defp read_batch(type, batch_num) do
