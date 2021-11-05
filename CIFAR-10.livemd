@@ -1,3 +1,5 @@
+<!-- vim: syntax=markdown -->
+
 <!-- livebook:{"persist_outputs":true} -->
 
 # CIFAR-10
