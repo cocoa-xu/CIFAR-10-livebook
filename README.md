@@ -3,7 +3,9 @@ A simple example using [Numerical Elixir (Nx)](https://github.com/elixir-nx) and
 
 ## Run this benchmark
 ```
-iex -S mix
+$ export LIBTORCH_DIR=/path/to/libtorch
+$ mix deps.get
+$ iex -S mix
 iex(1)> # choose backend
 iex(2)> # backend = Torchx.Backend
 iex(3)> backend = Nx.BinaryBackend

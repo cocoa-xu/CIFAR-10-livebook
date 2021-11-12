@@ -21,7 +21,8 @@ defmodule MyElixirBenchmark.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx"}
+      {:torchx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "torchx"},
+      {:nx, "~> 0.1.0-dev", github: "elixir-nx/nx", sparse: "nx", override: true},
     ]
   end
 end
