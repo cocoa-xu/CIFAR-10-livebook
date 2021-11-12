@@ -7,8 +7,8 @@ $ export LIBTORCH_DIR=/path/to/libtorch
 $ mix deps.get
 $ iex -S mix
 iex(1)> # choose backend
-iex(2)> # backend = Torchx.Backend
-iex(3)> backend = Nx.BinaryBackend
+iex(2)> # backend = Nx.BinaryBackend
+iex(3)> backend = Torchx.Backend
 {Nx.BinaryBackend, []}
 iex(4)> # path to the directory that contains CIFAR10 .bin files
 iex(5)> datadir = __ENV__.file |> Path.dirname() |> Path.join(["cifar10-dataset"])

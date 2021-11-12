@@ -1,10 +1,8 @@
-<!-- vim: syntax=markdown -->
+# Untitled notebook
 
-<!-- livebook:{"persist_outputs":true} -->
+## CIFAR-10
 
-# CIFAR-10
-
-## Section
+### Section
 
 ```elixir
 defmodule CIFAR10 do
@@ -37,12 +35,12 @@ defmodule CIFAR10 do
     File.read(filename)
   end
 
-  def rgb_to_grey(chw) do
+  def rgb_to_grey(chw, backend) do
     # http://support.ptc.com/help/mathcad/en/index.html#page/PTC_Mathcad_Help/example_grayscale_and_color_in_images.html
     # using the NTSC formula: 0.299 ∙ Red + 0.587 ∙ Green + 0.114 ∙ Blue
     chw
     |> Nx.transpose(axes: [1, 2, 0])
-    |> Nx.dot(Nx.tensor([0.299, 0.587, 0.114]))
+    |> Nx.dot(Nx.tensor([0.299, 0.587, 0.114], backend: backend))
   end
 
   def get_all_dataset(datadir \\ __ENV__.file |> Path.dirname()) do
@@ -53,11 +51,11 @@ defmodule CIFAR10 do
     {:ok, training_data, test_data}
   end
 
-  def get_dataset(colour_type, datadir \\ __ENV__.file |> Path.dirname()) do
+  def get_dataset(colour_type, datadir \\ __ENV__.file |> Path.dirname(), backend \\ Nx.BinaryBackend) do
     {:ok, training_data, test_data} = get_all_dataset(datadir)
     # convert to Nx arrays
-    {:ok, x_training, y_training} = to_nx_array(training_data, colour_type)
-    {:ok, x_test, y_test} = to_nx_array(test_data, colour_type)
+    {:ok, x_training, y_training} = to_nx_array(training_data, colour_type, backend)
+    {:ok, x_test, y_test} = to_nx_array(test_data, colour_type, backend)
     # return greyscale dataset
     {Nx.as_type(x_training, {:f, 32}), Nx.as_type(y_training, {:f, 32}), x_test, y_test}
   end
@@ -74,7 +72,7 @@ defmodule CIFAR10 do
     {:ok, all_data}
   end
 
-  defp to_nx_array(raw_data, colour_type) do
+  defp to_nx_array(raw_data, colour_type, backend \\ Nx.BinaryBackend) do
     # get number of bytes
     num_bytes = byte_size(raw_data)
     # according to https://www.cs.toronto.edu/~kriz/cifar.html
@@ -89,18 +87,26 @@ defmodule CIFAR10 do
       case colour_type do
         :rgb ->
           Enum.to_list(0..num_samples)
-          |> Enum.map(fn i -> Task.async(fn -> :binary.part(raw_data, i * 3073, 3072)
-            |> Nx.from_binary({:u, 8}) end) end)
+          |> Enum.map(fn i ->
+            Task.async(fn ->
+              :binary.part(raw_data, i * 3073, 3072)
+              |> Nx.from_binary({:u, 8}, backend: backend)
+            end)
+          end)
           |> Enum.map(&Task.await(&1, :infinity))
           |> Nx.concatenate()
           |> Nx.reshape({num_samples + 1, 3, 32, 32}, names: [:n, :c, :h, :w])
 
         :grey ->
           Enum.to_list(0..num_samples)
-          |> Enum.map(fn i -> Task.async(fn -> :binary.part(raw_data, i * 3073, 3072)
-            |> Nx.from_binary({:u, 8})
-            |> Nx.reshape({3, 32, 32}, names: [:c, :h, :w])
-            |> rgb_to_grey() end) end)
+          |> Enum.map(fn i ->
+            Task.async(fn ->
+              :binary.part(raw_data, i * 3073, 3072)
+              |> Nx.from_binary({:u, 8}, backend: backend)
+              |> Nx.reshape({3, 32, 32}, names: [:c, :h, :w])
+              |> rgb_to_grey(backend)
+            end)
+          end)
           |> Enum.map(&Task.await(&1, :infinity))
           |> Nx.concatenate()
           |> Nx.reshape({num_samples + 1, 32, 32}, names: [:n, :h, :w])
@@ -109,9 +115,13 @@ defmodule CIFAR10 do
     # get labels
     labels =
       Enum.to_list(0..num_samples)
-      |> Enum.map(fn i -> Task.async(fn -> :binary.at(raw_data, i * 3073) end) end)
+      |> Enum.map(fn i ->
+        Task.async(fn ->
+          :binary.at(raw_data, i * 3073)
+        end)
+      end)
       |> Enum.map(&Task.await(&1, :infinity))
-      |> Nx.tensor()
+      |> Nx.tensor(backend: backend)
 
     # :ok
     {:ok, samples, labels}
@@ -119,11 +129,7 @@ defmodule CIFAR10 do
 end
 ```
 
-```output
-{:module, CIFAR10, <<70, 79, 82, 49, 0, 0, 21, ...>>, {:to_nx_array, 2}}
-```
-
-# DenseNN
+## DenseNN
 
 ```elixir
 # training code
@@ -244,11 +250,7 @@ defmodule DenseNN do
 end
 ```
 
-```output
-{:module, DenseNN, <<70, 79, 82, 49, 0, 0, 57, ...>>, {:train, 4}}
-```
-
-# Helper
+## Helper
 
 ```elixir
 defmodule Helper do
@@ -284,11 +286,7 @@ defmodule Helper do
 end
 ```
 
-```output
-{:module, Helper, <<70, 79, 82, 49, 0, 0, 9, ...>>, {:to_onehot, 2}}
-```
-
-# Benchmark
+## Benchmark
 
 ```elixir
 defmodule Benchmark do
@@ -296,8 +294,8 @@ defmodule Benchmark do
   require DenseNN
   require Helper
 
-  def load_dataset(datadir) do
-    {uSec, result} = :timer.tc(fn -> CIFAR10.get_dataset(:grey, datadir) end)
+  def load_dataset(datadir, backend) do
+    {uSec, result} = :timer.tc(fn -> CIFAR10.get_dataset(:grey, datadir, backend) end)
     IO.puts("[Time] load dataset: #{uSec/1000.0} ms")
     result
   end
@@ -336,15 +334,16 @@ defmodule Benchmark do
   end
 
   def run(opts \\ []) do
-    datadir = opts[:datadir] || __ENV__.file |> Path.dirname() |> Path.join(["..", "cifar10-dataset"])
+    datadir = opts[:datadir] || __ENV__.file |> Path.dirname() |> Path.join(["../", "cifar10-dataset"])
     epochs = opts[:epochs] || 5
     backend = opts[:backend] || Nx.BinaryBackend
     batch_size = opts[:batch_size] || 300
     Nx.default_backend(backend)
 
     params = init_random_params()
-    {x_training, y_training, _x_test, _y_test} = load_dataset(datadir)
+    {x_training, y_training, _x_test, _y_test} = load_dataset(datadir, backend)
     {x_training_batched, y_training_batched} = time_to_batched_input(x_training, y_training, batch_size)
+
     _final_params = DenseNN.train(
       x_training_batched,
       y_training_batched,
@@ -353,12 +352,6 @@ defmodule Benchmark do
     )
   end
 end
-
-:ok
-```
-
-```output
-:ok
 ```
 
 ```elixir
@@ -372,16 +365,11 @@ end
 # ├── data_batch_5.bin
 # └── test_batch.bin
 
-# choose backend
-# backend = Torchx.Backend
-backend = Nx.BinaryBackend
 # path to the directory that contains CIFAR10 .bin files
 datadir = __ENV__.file |> Path.dirname() |> Path.join(["cifar10-dataset"])
+backend = Torchx.Backend
 
-Benchmark.run(
-  datadir: datadir,
-  backend: backend
-)
+Benchmark.run(datadir: datadir, backend: backend)
 
 :ok
 ```

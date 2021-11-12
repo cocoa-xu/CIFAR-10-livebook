@@ -3,8 +3,8 @@ defmodule Benchmark do
   require DenseNN
   require Helper
 
-  def load_dataset(datadir) do
-    {uSec, result} = :timer.tc(fn -> CIFAR10.get_dataset(:grey, datadir) end)
+  def load_dataset(datadir, backend) do
+    {uSec, result} = :timer.tc(fn -> CIFAR10.get_dataset(:grey, datadir, backend) end)
     IO.puts("[Time] load dataset: #{uSec/1000.0} ms")
     result
   end
@@ -43,15 +43,16 @@ defmodule Benchmark do
   end
 
   def run(opts \\ []) do
-    datadir = opts[:datadir] || __ENV__.file |> Path.dirname() |> Path.join(["..", "cifar10-dataset"])
+    datadir = opts[:datadir] || __ENV__.file |> Path.dirname() |> Path.join(["../", "cifar10-dataset"])
     epochs = opts[:epochs] || 5
     backend = opts[:backend] || Nx.BinaryBackend
     batch_size = opts[:batch_size] || 300
     Nx.default_backend(backend)
 
     params = init_random_params()
-    {x_training, y_training, _x_test, _y_test} = load_dataset(datadir)
+    {x_training, y_training, _x_test, _y_test} = load_dataset(datadir, backend)
     {x_training_batched, y_training_batched} = time_to_batched_input(x_training, y_training, batch_size)
+
     _final_params = DenseNN.train(
       x_training_batched,
       y_training_batched,
