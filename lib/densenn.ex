@@ -112,7 +112,7 @@ defmodule DenseNN do
         history_loss = history_loss ++ [epoch_avg_loss]
         history_time = history_time ++ [epoch_time]
 
-        IO.puts("Epoch #{epoch} Time: #{epoch_time}s, loss: #{Float.round(epoch_avg_loss, 3)}, acc: #{Float.round(epoch_avg_acc, 3)}")
+        IO.puts("Epoch #{epoch} Time: #{Float.round(epoch_time, 3)}s, loss: #{Float.round(epoch_avg_loss, 3)}, acc: #{Float.round(epoch_avg_acc, 3)}")
         {new_params, history_acc, history_loss, history_time}
     end
   end

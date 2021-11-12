@@ -65,6 +65,6 @@ defmodule Benchmark do
       |> Nx.tensor()
       |> Nx.mean()
       |> Nx.to_scalar()
-    IO.puts("[Time] mean epoch time: #{mean_epoch_time} secs")
+    IO.puts("[Time] mean epoch time: #{Float.round(mean_epoch_time, 3)} secs")
   end
 end
