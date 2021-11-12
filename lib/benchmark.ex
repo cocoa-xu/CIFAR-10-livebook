@@ -59,7 +59,12 @@ defmodule Benchmark do
       params,
       epochs: epochs
     )
-    mean_epoch_time = Nx.mean(Nx.tensor(history_time))
+
+    mean_epoch_time =
+      history_time
+      |> Nx.tensor()
+      |> Nx.mean()
+      |> Nx.to_scalar()
     IO.puts("[Time] mean epoch time: #{mean_epoch_time} secs")
   end
 end
