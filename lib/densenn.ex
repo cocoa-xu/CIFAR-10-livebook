@@ -91,8 +91,8 @@ defmodule DenseNN do
   def train(x, labels, params, opts \\ []) do
     epochs = opts[:epochs] || 5
 
-    for epoch <- 1..epochs, reduce: params do
-      cur_params ->
+    for epoch <- 1..epochs, reduce: {params, [], [], []} do
+      {cur_params, history_acc, history_loss, history_time} ->
         {time, {new_params, epoch_avg_loss, epoch_avg_acc}} =
           :timer.tc(__MODULE__, :train_epoch, [cur_params, x, labels])
 
@@ -106,8 +106,14 @@ defmodule DenseNN do
           |> Nx.backend_transfer()
           |> Nx.to_scalar()
 
-        IO.puts("Epoch #{epoch} Time: #{time / 1_000_000}s, loss: #{Float.round(epoch_avg_loss, 3)}, acc: #{Float.round(epoch_avg_acc, 3)}")
-        new_params
+        epoch_time = time / 1_000_000
+
+        history_acc = history_acc ++ [epoch_avg_acc]
+        history_loss = history_loss ++ [epoch_avg_loss]
+        history_time = history_time ++ [epoch_time]
+
+        IO.puts("Epoch #{epoch} Time: #{epoch_time}s, loss: #{Float.round(epoch_avg_loss, 3)}, acc: #{Float.round(epoch_avg_acc, 3)}")
+        {new_params, history_acc, history_loss, history_time}
     end
   end
 end

@@ -53,11 +53,13 @@ defmodule Benchmark do
     {x_training, y_training, _x_test, _y_test} = load_dataset(datadir, backend)
     {x_training_batched, y_training_batched} = time_to_batched_input(x_training, y_training, batch_size)
 
-    _final_params = DenseNN.train(
+    {_final_params, _history_acc, _history_loss, history_time} = DenseNN.train(
       x_training_batched,
       y_training_batched,
       params,
       epochs: epochs
     )
+    mean_epoch_time = Nx.mean(Nx.tensor(history_time))
+    IO.puts("[Time] mean epoch time: #{mean_epoch_time} secs")
   end
 end
