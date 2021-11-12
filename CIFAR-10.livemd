@@ -7,43 +7,32 @@
 ## Section
 
 ```elixir
-# optional
-# use Torch or XLA will be much faster
-Nx.default_backend(Torchx.Backend)
-```
-
-```output
-{Torchx.Backend, []}
-```
-
-```elixir
-# expected directory layout
-# .
-# ├── CIFAR-10.livemd
-# ├── data_batch_1.bin
-# ├── data_batch_2.bin
-# ├── data_batch_3.bin
-# ├── data_batch_4.bin
-# ├── data_batch_5.bin
-# └── test_batch.bin
 defmodule CIFAR10 do
-  defp get_batch_file("data", batch_num) do
+  @doc """
+  # expected directory layout
+  # datadir
+  # ├── data_batch_1.bin
+  # ├── data_batch_2.bin
+  # ├── data_batch_3.bin
+  # ├── data_batch_4.bin
+  # ├── data_batch_5.bin
+  # └── test_batch.bin
+  """
+  def get_batch_file("data", batch_num, datadir) do
     # CIFAR-10 training dataset
-    __ENV__.file
-    |> Path.dirname()
+    datadir
     |> Path.join(["data_batch_" <> to_string(batch_num) <> ".bin"])
   end
 
-  defp get_batch_file("test", _) do
+  def get_batch_file("test", _, datadir) do
     # CIFAR-10 test dataset
-    __ENV__.file
-    |> Path.dirname()
+    datadir
     |> Path.join(["test_batch.bin"])
   end
 
-  defp read_batch(type, batch_num) do
+  defp read_batch(type, batch_num, datadir) do
     # get corresponding batch
-    filename = get_batch_file(type, batch_num)
+    filename = get_batch_file(type, batch_num, datadir)
     # read batch file
     File.read(filename)
   end
@@ -56,16 +45,16 @@ defmodule CIFAR10 do
     |> Nx.dot(Nx.tensor([0.299, 0.587, 0.114]))
   end
 
-  defp get_dataset() do
+  def get_all_dataset(datadir \\ __ENV__.file |> Path.dirname()) do
     # read training dataset
-    {:ok, training_data} = get_dataset("data", Enum.to_list(1..5), <<>>)
+    {:ok, training_data} = get_dataset("data", Enum.to_list(1..5), <<>>, datadir)
     # read test dataset
-    {:ok, test_data} = get_dataset("test", [nil], <<>>)
+    {:ok, test_data} = get_dataset("test", [nil], <<>>, datadir)
     {:ok, training_data, test_data}
   end
 
-  def get_dataset(colour_type) do
-    {:ok, training_data, test_data} = get_dataset()
+  def get_dataset(colour_type, datadir \\ __ENV__.file |> Path.dirname()) do
+    {:ok, training_data, test_data} = get_all_dataset(datadir)
     # convert to Nx arrays
     {:ok, x_training, y_training} = to_nx_array(training_data, colour_type)
     {:ok, x_test, y_test} = to_nx_array(test_data, colour_type)
@@ -73,14 +62,14 @@ defmodule CIFAR10 do
     {Nx.as_type(x_training, {:f, 32}), Nx.as_type(y_training, {:f, 32}), x_test, y_test}
   end
 
-  def get_dataset(type, [batch_num | rest], all_data) do
+  def get_dataset(type, [batch_num | rest], all_data, datadir) do
     # read current batch file
-    {:ok, data} = read_batch(type, batch_num)
+    {:ok, data} = read_batch(type, batch_num, datadir)
     # read rest batch file
-    get_dataset(type, rest, all_data <> data)
+    get_dataset(type, rest, all_data <> data, datadir)
   end
 
-  def get_dataset(_type, [], all_data) do
+  def get_dataset(_type, [], all_data, _datadir) do
     # no more batch file to read
     {:ok, all_data}
   end
@@ -134,15 +123,7 @@ end
 {:module, CIFAR10, <<70, 79, 82, 49, 0, 0, 21, ...>>, {:to_nx_array, 2}}
 ```
 
-```elixir
-{x_training, y_training, x_test, y_test} = CIFAR10.get_dataset(:grey)
-{n, _, _} = Nx.shape(x_training)
-n
-```
-
-```output
-50000
-```
+# DenseNN
 
 ```elixir
 # training code
@@ -256,10 +237,7 @@ defmodule DenseNN do
           |> Nx.backend_transfer()
           |> Nx.to_scalar()
 
-        IO.puts("Epoch #{epoch} Time: #{time / 1_000_000}s")
-        IO.puts("Epoch #{epoch} average loss: #{inspect(epoch_avg_loss)}")
-        IO.puts("Epoch #{epoch} average accuracy: #{inspect(epoch_avg_acc)}")
-        IO.puts("\n")
+        IO.puts("Epoch #{epoch} Time: #{time / 1_000_000}s, loss: #{Float.round(epoch_avg_loss, 3)}, acc: #{Float.round(epoch_avg_acc, 3)}")
         new_params
     end
   end
@@ -269,6 +247,8 @@ end
 ```output
 {:module, DenseNN, <<70, 79, 82, 49, 0, 0, 57, ...>>, {:train, 4}}
 ```
+
+# Helper
 
 ```elixir
 defmodule Helper do
@@ -308,300 +288,100 @@ end
 {:module, Helper, <<70, 79, 82, 49, 0, 0, 9, ...>>, {:to_onehot, 2}}
 ```
 
-```elixir
-batch_size = 300
-unique_classes = 10
-
-x_training_batched =
-  x_training
-  # uint8 to float
-  |> Nx.divide(255)
-  # flatten
-  |> Nx.reshape({:auto, 1024})
-  |> Nx.as_type({:f, 32})
-  |> Nx.to_batched_list(batch_size)
-
-y_training_batched =
-  y_training
-  |> Helper.to_onehot(unique_classes)
-  |> Nx.as_type({:f, 32})
-  |> Nx.to_batched_list(batch_size)
-
-:ok
-```
-
-```output
-:ok
-```
+# Benchmark
 
 ```elixir
-params = DenseNN.init_random_params()
+defmodule Benchmark do
+  require CIFAR10
+  require DenseNN
+  require Helper
 
-final_params =
-  DenseNN.train(
-    x_training_batched,
-    y_training_batched,
-    params,
-    epochs: 50
-  )
+  def load_dataset(datadir) do
+    {uSec, result} = :timer.tc(fn -> CIFAR10.get_dataset(:grey, datadir) end)
+    IO.puts("[Time] load dataset: #{uSec/1000.0} ms")
+    result
+  end
+
+  def to_batched_input(x_training, y_training, batch_size) do
+    unique_classes = 10
+
+    x_training_batched =
+      x_training
+      # uint8 to float
+      |> Nx.as_type({:f, 32})
+      |> Nx.divide(255.0)
+      # flatten
+      |> Nx.reshape({:auto, 1024})
+      |> Nx.to_batched_list(batch_size)
+
+    y_training_batched =
+      y_training
+      |> Helper.to_onehot(unique_classes)
+      |> Nx.as_type({:f, 32})
+      |> Nx.to_batched_list(batch_size)
+
+    {x_training_batched, y_training_batched}
+  end
+
+  def time_to_batched_input(x_training, y_training, batch_size) do
+    {uSec, result} = :timer.tc(fn -> to_batched_input(x_training, y_training, batch_size) end)
+    IO.puts("[Time] to batched input: #{uSec/1000.0} ms")
+    result
+  end
+
+  def init_random_params do
+    {uSec, result} = :timer.tc(fn -> DenseNN.init_random_params() end)
+    IO.puts("[Time] init random params: #{uSec/1000.0} ms")
+    result
+  end
+
+  def run(opts \\ []) do
+    datadir = opts[:datadir] || __ENV__.file |> Path.dirname() |> Path.join(["..", "cifar10-dataset"])
+    epochs = opts[:epochs] || 5
+    backend = opts[:backend] || Nx.BinaryBackend
+    batch_size = opts[:batch_size] || 300
+    Nx.default_backend(backend)
+
+    params = init_random_params()
+    {x_training, y_training, _x_test, _y_test} = load_dataset(datadir)
+    {x_training_batched, y_training_batched} = time_to_batched_input(x_training, y_training, batch_size)
+    _final_params = DenseNN.train(
+      x_training_batched,
+      y_training_batched,
+      params,
+      epochs: epochs
+    )
+  end
+end
 
 :ok
-```
-
-```output
-Epoch 1 Time: 0.803077s
-Epoch 1 average loss: 68.7657699584961
-Epoch 1 average accuracy: 0.126087948679924
-
-
-Epoch 2 Time: 0.796369s
-Epoch 2 average loss: 66.5102310180664
-Epoch 2 average accuracy: 0.1714371144771576
-
-
-Epoch 3 Time: 0.79897s
-Epoch 3 average loss: 64.82881927490234
-Epoch 3 average accuracy: 0.19141711294651031
-
-
-Epoch 4 Time: 0.777565s
-Epoch 4 average loss: 63.569854736328125
-Epoch 4 average accuracy: 0.21922153234481812
-
-
-Epoch 5 Time: 0.780275s
-Epoch 5 average loss: 62.415199279785156
-Epoch 5 average accuracy: 0.23788419365882874
-
-
-Epoch 6 Time: 0.817757s
-Epoch 6 average loss: 61.80364227294922
-Epoch 6 average accuracy: 0.24995994567871094
-
-
-Epoch 7 Time: 0.812815s
-Epoch 7 average loss: 61.37662887573242
-Epoch 7 average accuracy: 0.25698593258857727
-
-
-Epoch 8 Time: 0.814344s
-Epoch 8 average loss: 60.96019744873047
-Epoch 8 average accuracy: 0.2646107077598572
-
-
-Epoch 9 Time: 0.816034s
-Epoch 9 average loss: 60.532901763916016
-Epoch 9 average accuracy: 0.27045902609825134
-
-
-Epoch 10 Time: 0.81054s
-Epoch 10 average loss: 60.113563537597656
-Epoch 10 average accuracy: 0.27670642733573914
-
-
-Epoch 11 Time: 0.827785s
-Epoch 11 average loss: 59.72106170654297
-Epoch 11 average accuracy: 0.28095799684524536
-
-
-Epoch 12 Time: 0.817091s
-Epoch 12 average loss: 59.35633087158203
-Epoch 12 average accuracy: 0.2855288088321686
-
-
-Epoch 13 Time: 0.80908s
-Epoch 13 average loss: 59.00703430175781
-Epoch 13 average accuracy: 0.2896604537963867
-
-
-Epoch 14 Time: 0.814167s
-Epoch 14 average loss: 58.66067123413086
-Epoch 14 average accuracy: 0.2937723696231842
-
-
-Epoch 15 Time: 0.785149s
-Epoch 15 average loss: 58.31298828125
-Epoch 15 average accuracy: 0.29896193742752075
-
-
-Epoch 16 Time: 0.799338s
-Epoch 16 average loss: 57.967445373535156
-Epoch 16 average accuracy: 0.30313360691070557
-
-
-Epoch 17 Time: 0.821787s
-Epoch 17 average loss: 57.63004684448242
-Epoch 17 average accuracy: 0.30670660734176636
-
-
-Epoch 18 Time: 0.810802s
-Epoch 18 average loss: 57.304771423339844
-Epoch 18 average accuracy: 0.3103392422199249
-
-
-Epoch 19 Time: 0.820836s
-Epoch 19 average loss: 56.99277877807617
-Epoch 19 average accuracy: 0.31510984897613525
-
-
-Epoch 20 Time: 0.854628s
-Epoch 20 average loss: 56.69321823120117
-Epoch 20 average accuracy: 0.3189621567726135
-
-
-Epoch 21 Time: 0.805037s
-Epoch 21 average loss: 56.40473175048828
-Epoch 21 average accuracy: 0.32257476449012756
-
-
-Epoch 22 Time: 0.803996s
-Epoch 22 average loss: 56.1258659362793
-Epoch 22 average accuracy: 0.3266865015029907
-
-
-Epoch 23 Time: 0.786438s
-Epoch 23 average loss: 55.855594635009766
-Epoch 23 average accuracy: 0.3308183550834656
-
-
-Epoch 24 Time: 0.789865s
-Epoch 24 average loss: 55.59310531616211
-Epoch 24 average accuracy: 0.33419156074523926
-
-
-Epoch 25 Time: 0.76699s
-Epoch 25 average loss: 55.337799072265625
-Epoch 25 average accuracy: 0.33862268924713135
-
-
-Epoch 26 Time: 0.783455s
-Epoch 26 average loss: 55.089290618896484
-Epoch 26 average accuracy: 0.3417165279388428
-
-
-Epoch 27 Time: 0.777347s
-Epoch 27 average loss: 54.847347259521484
-Epoch 27 average accuracy: 0.34435129165649414
-
-
-Epoch 28 Time: 0.789948s
-Epoch 28 average loss: 54.61201095581055
-Epoch 28 average accuracy: 0.3465668261051178
-
-
-Epoch 29 Time: 0.81269s
-Epoch 29 average loss: 54.38359069824219
-Epoch 29 average accuracy: 0.35043904185295105
-
-
-Epoch 30 Time: 0.812856s
-Epoch 30 average loss: 54.16234588623047
-Epoch 30 average accuracy: 0.3531336486339569
-
-
-Epoch 31 Time: 0.811606s
-Epoch 31 average loss: 53.94850158691406
-Epoch 31 average accuracy: 0.3555688261985779
-
-
-Epoch 32 Time: 0.823279s
-Epoch 32 average loss: 53.742191314697266
-Epoch 32 average accuracy: 0.35784420371055603
-
-
-Epoch 33 Time: 0.813971s
-Epoch 33 average loss: 53.543331146240234
-Epoch 33 average accuracy: 0.36087822914123535
-
-
-Epoch 34 Time: 0.786756s
-Epoch 34 average loss: 53.35163497924805
-Epoch 34 average accuracy: 0.3637923300266266
-
-
-Epoch 35 Time: 0.782334s
-Epoch 35 average loss: 53.16670227050781
-Epoch 35 average accuracy: 0.3668264150619507
-
-
-Epoch 36 Time: 0.77714s
-Epoch 36 average loss: 52.98808670043945
-Epoch 36 average accuracy: 0.36934131383895874
-
-
-Epoch 37 Time: 0.823598s
-Epoch 37 average loss: 52.81534957885742
-Epoch 37 average accuracy: 0.37155693769454956
-
-
-Epoch 38 Time: 0.815151s
-Epoch 38 average loss: 52.64800262451172
-Epoch 38 average accuracy: 0.3739321231842041
-
-
-Epoch 39 Time: 0.815011s
-Epoch 39 average loss: 52.48572540283203
-Epoch 39 average accuracy: 0.37628740072250366
-
-
-Epoch 40 Time: 0.815955s
-Epoch 40 average loss: 52.32804870605469
-Epoch 40 average accuracy: 0.37834328413009644
-
-
-Epoch 41 Time: 0.81416s
-Epoch 41 average loss: 52.174583435058594
-Epoch 41 average accuracy: 0.38047894835472107
-
-
-Epoch 42 Time: 0.827025s
-Epoch 42 average loss: 52.024993896484375
-Epoch 42 average accuracy: 0.38199594616889954
-
-
-Epoch 43 Time: 0.794406s
-Epoch 43 average loss: 51.8788948059082
-Epoch 43 average accuracy: 0.38427141308784485
-
-
-Epoch 44 Time: 0.763607s
-Epoch 44 average loss: 51.73603057861328
-Epoch 44 average accuracy: 0.3864072263240814
-
-
-Epoch 45 Time: 0.798662s
-Epoch 45 average loss: 51.59611892700195
-Epoch 45 average accuracy: 0.3880240321159363
-
-
-Epoch 46 Time: 0.817519s
-Epoch 46 average loss: 51.458927154541016
-Epoch 46 average accuracy: 0.3896208107471466
-
-
-Epoch 47 Time: 0.818667s
-Epoch 47 average loss: 51.32427215576172
-Epoch 47 average accuracy: 0.3914371430873871
-
-
-Epoch 48 Time: 0.820442s
-Epoch 48 average loss: 51.19187927246094
-Epoch 48 average accuracy: 0.3933132588863373
-
-
-Epoch 49 Time: 0.812657s
-Epoch 49 average loss: 51.061649322509766
-Epoch 49 average accuracy: 0.39453086256980896
-
-
-Epoch 50 Time: 0.783337s
-Epoch 50 average loss: 50.93345642089844
-Epoch 50 average accuracy: 0.39602795243263245
-
-
 ```
 
 ```output
 :ok
 ```
 
+```elixir
+# expected directory layout for the livebook
+# datadir
+# ├── CIFAR-10.livemd
+# ├── data_batch_1.bin
+# ├── data_batch_2.bin
+# ├── data_batch_3.bin
+# ├── data_batch_4.bin
+# ├── data_batch_5.bin
+# └── test_batch.bin
+
+# choose backend
+# backend = Torchx.Backend
+backend = Nx.BinaryBackend
+# path to the directory that contains CIFAR10 .bin files
+datadir = __ENV__.file |> Path.dirname() |> Path.join(["cifar10-dataset"])
+
+Benchmark.run(
+  datadir: datadir,
+  backend: backend
+)
+
+:ok
+```
