@@ -53,7 +53,7 @@ iex(5)> Benchmark.run(
 | Intel 8950HK | LibTorch CPU           | 24  | 2.141        | 0.778            | 0.841           |
 | Ryzen 3900XT | Binary (Single-thread) | 24  | 6.058        | 2.391            | 3670.930        |
 | Ryzen 3900XT | Binary (Multi-thread)  | 24  | 6.034        | 2.536            | 786.443         |
-| Ryzen 3900XT | LibTorch CPU           | 24  |              |                  |                 |
+| Ryzen 3900XT | LibTorch CPU           | 24  | 1.653        | 0.617            | 0.770           |
 | Ryzen 3900XT | LibTorch GPU           | 24  | 1.630        | 0.652            | 0.564           | 
 | M1 Max       | Binary (Single-thread) | 24  | 11.090       | 2.135            | 3003.321        |
 | M1 Max       | Binary (Multi-thread)  | 24  | 10.925       | 2.154            | 453.536         |
