@@ -134,8 +134,8 @@ defmodule DenseNN do
               |> Enum.map(fn {current, total} -> Nx.add(total, current) end)
             [acc_grad, Nx.add(loss, acc_loss), Nx.add(acc, acc_acc)]
           end)
-        batch_loss = Nx.divide(batch_loss, System.schedulers_online())
-        batch_acc = Nx.divide(batch_acc, System.schedulers_online())
+        batch_loss = Nx.divide(batch_loss, n_jobs)
+        batch_acc = Nx.divide(batch_acc, n_jobs)
 
         update_with_averages(cur_params, List.to_tuple(batch_grad), batch_loss, batch_acc, avg_loss, avg_accuracy, total_batches)
     end)
