@@ -3,6 +3,15 @@ A simple example using [Numerical Elixir (Nx)](https://github.com/elixir-nx) and
 
 Dataset: [cifar-10-binary.tar.gz](https://www.cs.toronto.edu/\~kriz/cifar-10-binary.tar.gz)
 
+P.S. The goal of this benchmark is only to evaluate the matrix computation performance, instead of getting a decent (or even acceptable) CIFAR-10 prediction accuracy.
+
+## TL;DR
+
+1. Use C libraries (via NIF) for matrix computation when performance is top priority. Otherwise it is about 10^3 times slower in terms of matrix computation.
+2. OTP 25 introduces JIT on ARM64 and it shows 3-4% performance improvement (matrix computation).
+3. Almost linear speedup can be achieved when a large computation task can be divided into independent smaller ones.
+4. Apple M1 Max performs much better than its x86_64 competitors (Intel Core i9 8950HK and AMD Ryzen 9 3900XT).
+
 ## Run this benchmark
 ```
 $ export LIBTORCH_DIR=/path/to/libtorch
