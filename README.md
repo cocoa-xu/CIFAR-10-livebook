@@ -12,6 +12,8 @@ P.S. The goal of this benchmark is only to evaluate the matrix computation perfo
 3. Almost linear speedup can be achieved when a large computation task can be divided into independent smaller ones.
 4. Apple M1 Max performs much better than its x86_64 competitors (Intel Core i9 8950HK and AMD Ryzen 9 3900XT).
 
+For some more details, [https://cocoa-research.works/2021/11/numerical-elixir-benchmark-cifar10-with-3-layer-densenn/](https://cocoa-research.works/2021/11/numerical-elixir-benchmark-cifar10-with-3-layer-densenn/)
+
 ## Run this benchmark
 ```
 $ export LIBTORCH_DIR=/path/to/libtorch
