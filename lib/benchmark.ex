@@ -46,7 +46,8 @@ defmodule Benchmark do
     datadir = opts[:datadir] || __ENV__.file |> Path.dirname() |> Path.join(["../", "cifar10-dataset"])
     epochs = opts[:epochs] || 5
     backend = opts[:backend] || Nx.BinaryBackend
-    batch_size = opts[:batch_size] || 300
+    batch_size = opts[:batch_size] || 250
+    n_jobs = opts[:n_jobs] || System.schedulers_online()
     Nx.default_backend(backend)
 
     params = init_random_params()
@@ -57,7 +58,9 @@ defmodule Benchmark do
       x_training_batched,
       y_training_batched,
       params,
-      epochs: epochs
+      epochs: epochs,
+      backend: backend,
+      n_jobs: n_jobs
     )
 
     mean_epoch_time =

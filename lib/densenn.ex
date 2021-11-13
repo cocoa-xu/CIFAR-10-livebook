@@ -48,9 +48,12 @@ defmodule DenseNN do
     -Nx.sum(Nx.mean(Nx.log(preds) * batch_labels, axes: [:output]))
   end
 
-  defn update({w1, b1, w2, b2, w3, b3} = params, batch_images, batch_labels, step) do
-    {grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3} =
-      grad(params, &loss(&1, batch_images, batch_labels))
+  defn compute_gradient({_, _, _, _, _, _} = params, batch_images, batch_labels) do
+    grad(params, &loss(&1, batch_images, batch_labels))
+  end
+
+  defn update({w1, b1, w2, b2, w3, b3} = _params, batch_grad, step) do
+    {grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3} = batch_grad
 
     {
       w1 - grad_w1 * step,
@@ -64,20 +67,81 @@ defmodule DenseNN do
 
   defn update_with_averages(
          {_, _, _, _, _, _} = cur_params,
-         imgs,
-         tar,
+         batch_grad,
+         batch_loss,
+         batch_acc,
          avg_loss,
          avg_accuracy,
          total
        ) do
+    avg_loss = avg_loss + batch_loss / total
+    avg_accuracy = avg_accuracy + batch_acc / total
+    {update(cur_params, batch_grad, 0.01), avg_loss, avg_accuracy}
+  end
+
+  defn update_with_averages(
+        {_, _, _, _, _, _} = cur_params,
+        imgs,
+        tar,
+        avg_loss,
+        avg_accuracy,
+        total
+      ) do
     batch_loss = loss(cur_params, imgs, tar)
     batch_accuracy = accuracy(cur_params, imgs, tar)
     avg_loss = avg_loss + batch_loss / total
     avg_accuracy = avg_accuracy + batch_accuracy / total
-    {update(cur_params, imgs, tar, 0.01), avg_loss, avg_accuracy}
+    batch_grad = compute_gradient(cur_params, imgs, tar)
+    {update(cur_params, batch_grad, 0.01), avg_loss, avg_accuracy}
   end
 
-  def train_epoch(cur_params, x, labels) do
+  def train_epoch(cur_params, x, labels, Nx.BinaryBackend, n_jobs) when n_jobs >= 1 do
+    total_batches = Enum.count(x)
+
+    x
+    |> Enum.zip(labels)
+    |> Enum.reduce({cur_params, Nx.tensor(0.0), Nx.tensor(0.0)}, fn
+      {x, tar}, {cur_params, avg_loss, avg_accuracy} ->
+        [n_samples|_] = Nx.shape(x) |> Tuple.to_list()
+        split_len =
+          n_samples
+          |> :erlang.div(n_jobs)
+          |> round()
+
+        x_splits = Nx.to_batched_list(x, split_len)
+        tar_splits = Nx.to_batched_list(tar, split_len)
+
+        [[first_grad, first_loss, first_acc]|rest_splits] =
+          Enum.zip(x_splits, tar_splits)
+          |> Enum.map(fn {imgs, labels} ->
+            Task.async(fn ->
+              Nx.default_backend(Nx.BinaryBackend)
+              split_loss = loss(cur_params, imgs, labels)
+              split_acc = accuracy(cur_params, imgs, labels)
+              [compute_gradient(cur_params, imgs, labels), split_loss, split_acc]
+            end)
+          end)
+          |> Enum.map(&Task.await(&1, :infinity))
+
+        [batch_grad, batch_loss, batch_acc] =
+          rest_splits |>
+          Enum.reduce([Tuple.to_list(first_grad), first_loss, first_acc],
+          fn [grad, loss, acc], [acc_grad, acc_loss, acc_acc] ->
+            acc_grad =
+              grad
+              |> Tuple.to_list()
+              |> Enum.zip(acc_grad)
+              |> Enum.map(fn {current, total} -> Nx.add(total, current) end)
+            [acc_grad, Nx.add(loss, acc_loss), Nx.add(acc, acc_acc)]
+          end)
+        batch_loss = Nx.divide(batch_loss, System.schedulers_online())
+        batch_acc = Nx.divide(batch_acc, System.schedulers_online())
+
+        update_with_averages(cur_params, List.to_tuple(batch_grad), batch_loss, batch_acc, avg_loss, avg_accuracy, total_batches)
+    end)
+  end
+
+  def train_epoch(cur_params, x, labels, _backend, _n_jobs) do
     total_batches = Enum.count(x)
 
     x
@@ -90,11 +154,13 @@ defmodule DenseNN do
 
   def train(x, labels, params, opts \\ []) do
     epochs = opts[:epochs] || 5
+    n_jobs = opts[:n_jobs] || 1
+    backend = opts[:backend] || Nx.BinaryBackend
 
     for epoch <- 1..epochs, reduce: {params, [], [], []} do
       {cur_params, history_acc, history_loss, history_time} ->
         {time, {new_params, epoch_avg_loss, epoch_avg_acc}} =
-          :timer.tc(__MODULE__, :train_epoch, [cur_params, x, labels])
+          :timer.tc(__MODULE__, :train_epoch, [cur_params, x, labels, backend, n_jobs])
 
         epoch_avg_loss =
           epoch_avg_loss
