@@ -52,12 +52,21 @@ iex(5)> Benchmark.run(
 | M1 Max       | LibTorch CPU           | 25  | 1.599        | 0.745            | 0.773           | 
 
 RPi 4: Raspberry Pi 4, 8 GB RAM
+
 Intel 8950HK: 6 Cores 12 Threads, MacBook Pro (15-inch, 2018), 32 GB RAM
+
 Ryzen 3900XT: 12 Cores 24 Threads, Desktop PC, 64 GB RAM
+
 M1 Max: 10 Cores (8 Performance + 2 Effiency) 10 Threads, MacBook Pro (14-inch, 2021), 64 GB RAM
+
 Binary (Single-thread): All computation related to training is done in a single erlang thread
+
 Binary (Multi-thread): All computation related to training is done in multi erlang threads (System.schedulers_online())
+
 LibTorch CPU: v1.9.1
+
 LibTorch GPU: v1.9.1, CUDA 11.1, cuDNN 8.2.1, NVIDIA RTX 3090 24 GB
+
 OTP 24: 24.0.6 (installed by asdf)
+
 OTP 25: [b58c66e12](https://github.com/erlang/otp/tree/b58c66e123521bc8f2b2c9332f41ce8093a90dbc)
