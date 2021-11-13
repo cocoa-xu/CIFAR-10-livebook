@@ -40,8 +40,11 @@ iex(5)> Benchmark.run(
 ```
 
 ### Results
+
+Numbers are in seconds.
+
 | Hardware     | Backend                | OTP | Load Dataset | To Batched Input | Mean Epoch Time |
-|--------------|------------------------|-----|--------------|------------------|-----------------|
+|--------------|------------------------|-----|-------------:|-----------------:|----------------:|
 | RPi 4        | Binary (Single-thread) | 24  |              |                  |                 |
 | RPi 4        | Binary (Multi-thread)  | 24  |              |                  |                 |
 | RPi 4        | Binary (Single-thread) | 25  | 194.427      | 11.917           | 27336.010       |
