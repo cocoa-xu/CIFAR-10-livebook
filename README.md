@@ -48,7 +48,7 @@ Numbers are in seconds.
 | RPi 4        | Binary (Single-thread) | 24  |              |                  |                 |
 | RPi 4        | Binary (Multi-thread)  | 24  |              |                  |                 |
 | RPi 4        | Binary (Single-thread) | 25  | 194.427      | 11.917           | 27336.010       |
-| RPi 4        | Binary (Multi-thread)  | 25  |              |                  |                 |
+| RPi 4        | Binary (Multi-thread)  | 25  | 207.923      | 11.855           | 18083.473       |
 | RPi 4        | LibTorch CPU           | 24  | 15.334       | 4.880            | 17.170          |
 | RPi 4        | LibTorch CPU           | 25  | 16.372       | 4.442            | 16.207          |
 | Intel 8950HK | Binary (Single-thread) | 24  | 17.994       | 3.036            | 4460.758        |
